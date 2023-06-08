@@ -7,6 +7,33 @@ describe 'AWSManager integration test' do
   let(:aws_manager) { AWSManager.new(region: region, db_instance_identifier: db_instance_identifier, cidr_block: cidr_block) }
   let(:security_group_id) { aws_manager.security_group_id }
 
+  before(:all) do
+    rds_client = Aws::RDS::Client.new(region: region)
+
+    # Create the RDS instance for testing
+    rds_client.create_db_instance({
+      db_name: db_instance_identifier,
+      db_instance_identifier: db_instance_identifier,
+      allocated_storage: 5,  # in GB
+      db_instance_class: 'db.t2.micro',  # Free tier eligible
+      engine: 'mysql',
+      master_username: 'testuser',
+      master_user_password: 'testpassword',
+      multi_az: false,
+      vpc_security_group_ids: [],
+      publicly_accessible: true,
+      tags: [
+        {
+          key: 'Name',
+          value: 'Test RDS Instance'
+        }
+      ]
+    })
+
+    # Wait until the RDS instance is available
+    rds_client.wait_until(:db_instance_available, db_instance_identifier: db_instance_identifier)
+  end
+
   after(:all) do
     # Cleanup: Detach the security group from the RDS instance and delete the security group
     rds_client = Aws::RDS::Client.new(region: region)
@@ -21,6 +48,16 @@ describe 'AWSManager integration test' do
     })
     sleep(60)  # Wait for the changes to apply
 
+    # Delete the RDS instance
+    rds_client.delete_db_instance({
+      db_instance_identifier: db_instance_identifier,
+      skip_final_snapshot: true
+    })
+
+    # Wait until the RDS instance is deleted
+    rds_client.wait_until(:db_instance_deleted, db_instance_identifier: db_instance_identifier)
+
+    # Delete the security group
     ec2_client = Aws::EC2::Client.new(region: region)
     ec2_client.delete_security_group({
       group_id: security_group_id
