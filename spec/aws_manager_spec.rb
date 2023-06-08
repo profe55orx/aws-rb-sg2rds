@@ -36,25 +36,54 @@ describe AWSManager do
   end
 
   describe '#modify_rds_instance' do
-    before do
-      allow(ec2_client).to receive(:describe_security_groups).and_return(double(security_groups: [double(group_id: 'sg-456')]))
-      allow(rds_client).to receive(:modify_db_instance).and_return(double(db_instance_arn: 'arn-123'))
+    context 'when the security group is not attached to the RDS instance' do
+      before do
+        allow(ec2_client).to receive(:describe_security_groups).and_return(double(security_groups: [double(group_id: 'sg-456')]))
+        allow(rds_client).to receive(:describe_db_instances).and_return(double(db_instances: [double(vpc_security_groups: [])]))
+        allow(rds_client).to receive(:modify_db_instance).and_return(double(db_instance_arn: 'arn-123'))
+      end
+
+      it 'modifies the RDS instance' do
+        expect(aws_manager.modify_rds_instance.db_instance_arn).to eq('arn-123')
+      end
     end
 
-    it 'modifies the RDS instance' do
-      expect(aws_manager.modify_rds_instance.db_instance_arn).to eq('arn-123')
+    context 'when the security group is already attached to the RDS instance' do
+      before do
+        allow(ec2_client).to receive(:describe_security_groups).and_return(double(security_groups: [double(group_id: 'sg-456')]))
+        allow(rds_client).to receive(:describe_db_instances).and_return(double(db_instances: [double(vpc_security_groups: [double(vpc_security_group_id: 'sg-456')])]))
+      end
+
+      it 'does not modify the RDS instance' do
+        expect(rds_client).not_to receive(:modify_db_instance)
+        aws_manager.modify_rds_instance
+      end
     end
   end
 
   describe '#tag_rds_instance' do
-    before do
-      allow(ec2_client).to receive(:describe_security_groups).and_return(double(security_groups: [double(group_id: 'sg-456')]))
-      allow(rds_client).to receive(:modify_db_instance).and_return(double(db_instance_arn: 'arn-123'))
-      allow(rds_client).to receive(:add_tags_to_resource)
+    context 'when the RDS instance is not tagged' do
+      before do
+        allow(ec2_client).to receive(:describe_security_groups).and_return(double(security_groups: [double(group_id: 'sg-456')]))
+        allow(rds_client).to receive(:describe_db_instances).and_return(double(db_instances: [double(db_instance_arn: 'arn-123', tag_list: [])]))
+        allow(rds_client).to receive(:add_tags_to_resource)
+      end
+
+      it 'tags the RDS instance' do
+        expect { aws_manager.tag_rds_instance }.not_to raise_error
+      end
     end
 
-    it 'tags the RDS instance' do
-      expect { aws_manager.tag_rds_instance }.not_to raise_error
+    context 'when the RDS instance is already tagged' do
+      before do
+        allow(ec2_client).to receive(:describe_security_groups).and_return(double(security_groups: [double(group_id: 'sg-456')]))
+        allow(rds_client).to receive(:describe_db_instances).and_return(double(db_instances: [double(db_instance_arn: 'arn-123', tag_list: [double(key: 'Name', value: 'my-tag')])]))
+      end
+
+      it 'does not tag the RDS instance again' do
+        expect(rds_client).not_to receive(:add_tags_to_resource)
+        aws_manager.tag_rds_instance
+      end
     end
   end
 end

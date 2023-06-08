@@ -2,7 +2,7 @@ require 'aws-sdk-rds'
 require 'aws-sdk-ec2'
 
 class AWSManager
-  def initialize(region: ENV['AWS_DEFAULT_REGION'], db_instance_identifier: ENV['RDS_INSTANCE_IDENTIFIER'], cidr_block: ENV['CIDR_BLOCK'])
+  def initialize(region: 'us-west-2', db_instance_identifier: ENV['RDS_INSTANCE_IDENTIFIER'], cidr_block: ENV['CIDR_BLOCK'])
     @ec2_client = Aws::EC2::Client.new(region: region)
     @rds_client = Aws::RDS::Client.new(region: region)
     @db_instance_identifier = db_instance_identifier
@@ -53,7 +53,17 @@ class AWSManager
     end
   end
 
+  def existing_rds_security_group_binding
+    existing_rds_instance = @rds_client.describe_db_instances({
+      db_instance_identifier: @db_instance_identifier
+    }).db_instances.first
+
+    existing_rds_instance&.vpc_security_groups&.find { |sg| sg.vpc_security_group_id == security_group_id }
+  end
+
   def modify_rds_instance
+    return if existing_rds_security_group_binding
+
     @rds_client.modify_db_instance({
       db_instance_identifier: @db_instance_identifier,
       vpc_security_group_ids: [security_group_id],
@@ -62,8 +72,14 @@ class AWSManager
   end
 
   def tag_rds_instance
+    existing_rds_instance = @rds_client.describe_db_instances({
+      db_instance_identifier: @db_instance_identifier
+    }).db_instances.first
+
+    return if existing_rds_instance&.tag_list&.find { |tag| tag.key == @tag_key && tag.value == @tag_value }
+
     @rds_client.add_tags_to_resource({
-      resource_name: modify_rds_instance.db_instance_arn, 
+      resource_name: existing_rds_instance.db_instance_arn, 
       tags: [{key: @tag_key, value: @tag_value}]
     })
   end
